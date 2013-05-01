@@ -17,11 +17,11 @@ module Hamlbars
     end
 
     def prepare
-      options = @options.merge(:filename => eval_file, :line => line)
+      options = @options.merge(:filename => eval_file, :line => line, :ugly => true, :remove_whitespace => true)
       @engine = ::Haml::Engine.new(data, options)
     end
 
-    # Uses Haml to render the template into an HTML string, then 
+    # Uses Haml to render the template into an HTML string, then
     # wraps it in the neccessary JavaScript to serve to the client.
     def evaluate(scope, locals, &block)
       if @engine.respond_to?(:precompiled_method_return_value, true)
@@ -66,6 +66,34 @@ module Hamlbars
       end
     end
   end
+
+  class JSWrapper < Tilt::Template
+    self.default_mime_type = 'application/javascript'
+
+    def initialize_engine
+    end
+
+    def prepare
+    end
+
+    def evaluate(scope, locals, &block)
+      out = "(function() { var s = #{MultiJson.dump(data)}; Handlebars.templates[#{MultiJson.dump scope.logical_path}] = Handlebars.compile(s);"
+      if partial?(scope.logical_path)
+        partial_name = MultiJson.dump scope.logical_path.gsub("/", ".").split(".").map {|p| p.gsub(/^_/, "") }.join(".")
+        out << "Handlebars.registerPartial(#{partial_name}, s); "
+      end
+      out << "})();"
+      out
+    end
+
+    def partial?(name)
+      File.basename(name).start_with?("_")
+    end
+  end
+
+  class CompiledJSWrapper < Tilt::Template
+    # Todo
+  end
 end
 
 module Haml
@@ -74,8 +102,8 @@ module Haml
     module HamlbarsExtensions
       # Used to create handlebars expressions within HAML,
       # if you pass a block then it will create a Handlebars
-      # block helper (ie "{{#expression}}..{{/expression}}" 
-      # otherwise it will create an expression 
+      # block helper (ie "{{#expression}}..{{/expression}}"
+      # otherwise it will create an expression
       # (ie "{{expression}}").
       def handlebars(expression, options={}, &block)
         express(['{{','}}'],expression,options,&block)
